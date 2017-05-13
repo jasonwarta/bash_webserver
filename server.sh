@@ -6,5 +6,5 @@ function cleanup {
 trap cleanup SIGHUP SIGINT SIGKILL SIGTERM SIGSTOP
 
 while true; do
-	netcat -l -p 80 -e ./filehandler.sh
+	nc -l 80 -e ./filehandler.sh
 done
