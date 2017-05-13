@@ -1,0 +1,206 @@
+<!doctype html>
+<head>
+	<title>Trello History Visualizer</title>
+	<link rel="stylesheet" href="styles.css" type="text/css" media="screen" charset="utf-8">
+	<script>
+		var wait = true;
+		var	timeout = 750;
+		var jobs = [];
+		var startDate;
+
+		Number.prototype.AddZero= function(b,c){
+        	var  l= (String(b|| 10).length - String(this).length)+1;
+        	return l> 0? new Array(l).join(c|| '0')+this : this;
+        }
+
+        function setDateTime(){
+        	var d = new Date();
+			d.setDate(d.getDate()-7)
+			var localDateTime= [
+				d.getFullYear(),
+				(d.getMonth()+1).AddZero(),
+				(d.getDate()).AddZero(),
+                ].join('-') +'T' + [
+                d.getHours().AddZero(),
+                d.getMinutes().AddZero()].join(':');
+			document.getElementById('startDate').value = localDateTime;
+        }
+
+        function loadDateTime(){
+        	startDate = document.getElementById('startDate').value;
+        }
+
+		document.addEventListener("DOMContentLoaded", function(event) {
+			setDateTime()
+			loadDateTime()
+		});
+
+		function toggle(){
+			var btnToggle=document.getElementById('btnToggle');
+			if(wait){
+				btnToggle.value='Pause';
+			}
+			else {
+				btnToggle.value='Play';
+			}
+			timeout = document.getElementById('timeout').value;
+			loadDateTime()
+			wait = !wait;
+		}
+
+		function slower(){
+			timeout += 50;
+			document.getElementById('timeout').value = timeout;
+		}
+
+		function faster(){
+			timeout -= 50;
+			document.getElementById('timeout').value = timeout;
+		}
+
+		function loadFile() {
+			// document.getElementById('btnLoad').disabled = true;
+			var input, file, fr;
+			jobs = [];
+
+			if (typeof window.FileReader !== 'function'){
+				alert("The file API isn't supported on this browser yet.");
+				return;
+			}
+			input = document.getElementById('fileinput');
+			if(!input) {
+				alert("Couldn't file fileinput element");
+			} else if (!input.files) {
+				alert("This browser doesn't support the 'files' property of file inputs.");
+			} else if (!input.files[0]) {
+				alert("Please select a file before clicking 'Load'");
+			} else {
+				file = input.files[0];
+				fr = new FileReader();
+				fr.onload = playHistory;
+				fr.readAsText(file);
+			}
+			loadDateTime()
+		}
+
+		function JSONsort(a,b) {
+			return (new Date(a['date']).getTime() - new Date(b['date']).getTime());
+		}
+
+		function playHistory(e){
+			var data = JSON.parse(e.target.result);
+
+			var wrapper = document.getElementById('wrapper');
+			wrapper.innerHTML = "";
+			var cols = "";
+			for (var i = 0; i < data['lists'].length; i++){
+				cols += "1fr "
+			}
+			wrapper.style.gridTemplateColumns = cols;
+
+			for (i in data['lists']){
+				var h = document.createElement('section');
+				h.className = 'container col-'+i;
+				h.id = data['lists'][i]['id']
+				var h3 = document.createElement('h3');
+				h3.innerHTML = data['lists'][i]['name'];
+				h.appendChild(h3);
+				wrapper.appendChild(h);
+			}
+
+			var actions = data['actions'];
+			actions.sort(JSONsort);
+
+			for (var i = 0; i < actions.length; i++){
+				if (actions[i]['type'] == "createCard" || actions[i]['type'] == "updateCard" || actions[i]['type'] == "commentCard") {
+					if (!actions[i]['data']['card'].hasOwnProperty('pos')){
+						jobs.push(actions[i]);
+					}
+				}
+			}
+			timeout = document.getElementById('timeout').value;
+
+			
+			if (startDate != "") {
+				while (jobs[0]['date'] < startDate) {
+					processCard(jobs.shift());
+				}
+			}
+
+			timedQueue(0);
+		}
+
+		function timedQueue(){
+			if (!wait) {
+				setTimeout(function(){
+					var item = jobs.shift();
+					if (typeof(item) !== 'undefined'){
+						console.log(item['type'])
+						processCard(item);
+					} else {
+						document.getElementById('doneMsg').style.display = 'inline';
+					}
+					timedQueue();
+				},timeout);
+			} else {
+				setTimeout(function(){
+					timedQueue();
+				},timeout);
+			}
+		}
+
+		function next(){
+			wait = true;
+			var item = jobs.shift();
+			if (typeof(item) !== 'undefined'){
+				console.log(item['type'])
+				processCard(item);
+			} else {
+				document.getElementById('doneMsg').style.display = 'inline';
+			}
+		}
+
+		function processCard(action) {
+			if (action['type'] == "createCard") {
+				var card = document.createElement('article');
+				card.id = action['data']['card']['id'];
+				card.className = 'card';
+				card.innerHTML = action['data']['card']['name'];
+				document.getElementById(action['data']['list']['id']).appendChild(card);
+			}
+			else if (action['type'] == 'updateCard') {
+				var card = document.getElementById(action['data']['card']['id']);
+
+				if (typeof(action['data']['card']['closed']) == 'undefined'){
+					
+					if (action['data']['listAfter'] != null) {
+						document.getElementById(action['data']['listBefore']['id']).removeChild(card);
+						document.getElementById(action['data']['listAfter']['id']).appendChild(card);
+					}
+					card.innerHTML = action['data']['card']['name'];
+				}
+				else if (action['data']['card']['closed'] != null && action['data']['card']['closed'] == "true") {
+					card.style.display = "none";
+				}
+			} 
+			else if (action['type'] == 'commentCard') {
+				var card = document.getElementById(action['data']['card']['id']);
+				card.style.borderColor = action['data']['text'];
+			}
+		}
+	</script>
+</head>
+<html>
+	<header>
+		Load JSON File&nbsp;<input type='file' id='fileinput'>
+		<input type="datetime-local" id='startDate'>
+		<input type='button' id='btnLoad' value='Load' onclick='loadFile();'>
+		&nbsp;&nbsp;&nbsp;&nbsp;Timeout delay (ms)&nbsp;<input id='timeout' type="text" value='750'>
+		<input type="button" id='btnSlow' value='Slower' onclick='slower();'>
+		<input type="button" id='btnToggle' value="Play" onclick="toggle();">
+		<input type="button" id='btnFast' value='Faster' onclick='faster();'>
+		<input type="button" id='btnNext' value='Next' onclick='next();'>
+		<label id="doneMsg">Done Playing History</label>
+	</header>
+	<div class="wrapper" id="wrapper"></div>
+</html>
